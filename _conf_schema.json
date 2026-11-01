@@ -1,0 +1,65 @@
+{
+  "enabled": {
+    "type": "bool",
+    "default": true,
+    "description": "启用痛值反馈层",
+    "hint": "关闭后所有信号停止采集，pain 冻结在最后值"
+  },
+  "probe_interval": {
+    "type": "int",
+    "default": 300,
+    "description": "信号采样间隔（秒，30-3600）"
+  },
+  "probe_ports": {
+    "type": "list",
+    "default": ["127.0.0.1:6199"],
+    "description": "健康探测目标，格式 host:port；任一不可连即记为一次事故",
+    "hint": "留空则跳过端口探测"
+  },
+  "log_path": {
+    "type": "string",
+    "default": "",
+    "description": "可选：被监控的日志文件绝对路径，用于统计异常行数"
+  },
+  "log_error_pattern": {
+    "type": "string",
+    "default": "Traceback|ERROR|CRITICAL"
+  },
+  "weights": {
+    "type": "object",
+    "default": {
+      "process_health": 20,
+      "balance_burn": 25,
+      "rejection_count": 25,
+      "thermal_runtime": 10,
+      "log_errors": 20
+    },
+    "description": "各信号权重，总值应为 100"
+  },
+  "thresholds": {
+    "type": "object",
+    "default": {
+      "throttle": 30,
+      "readonly": 60,
+      "halt": 85
+    },
+    "description": "四段行为的分界点（升序）"
+  },
+  "decay_per_hour": {
+    "type": "int",
+    "default": 2,
+    "description": "无事故时每小时的 pain 衰减量（0-20），必须小于累积速度"
+  },
+  "inject_priority": {
+    "type": "bool",
+    "default": true,
+    "description": "每轮对话把 L0/L1/L2 硬约束注入系统提示（防模型越权跑偏）",
+    "hint": "关掉只保留痛值收缩，不建议"
+  },
+  "extern_signals_file": {
+    "type": "string",
+    "default": "",
+    "description": "可选：外部脚本写入的信号 JSON 绝对路径（余额速率等本插件测不到的量）",
+    "hint": "格式 {\"balance_burn\": 0-100, \"thermal_runtime\": 0-100}"
+  }
+}
