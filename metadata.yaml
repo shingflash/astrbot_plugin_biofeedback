@@ -1,0 +1,21 @@
+name: astrbot_plugin_biofeedback
+display_name: Biofeedback Pain Guard
+short_desc: 外部信号 → 0-100 痛值 → 四段权限收缩。给没有痛觉的 agent 装一层不可自评的负反馈。
+desc: |
+  把外部测量（进程/端口健康、消耗速率、被否决次数、连续运行时长、日志异常行数）折算成 0-100 的
+  pain 值，由脚本写入 state.json，不由 agent 自述。pain 只做权限收缩，不做"别再试"的判决：
+  0-30 放行、30-60 降频、60-85 只读、85+ 停机待审（须管理员解锁）。
+  衰减慢于累积——受伤快、养伤慢。
+version: 0.1.0
+author: shingflash
+repo: https://github.com/shingflash/astrbot_plugin_biofeedback
+astrbot_version: ">=4.27.1,<5"
+support_platforms:
+  - aiocqhttp
+  - telegram
+  - discord
+  - webchat
+tags:
+  - 反馈调节
+  - 安全约束
+  - agent
