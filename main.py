@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import sys
 import os
 import re
 import socket
@@ -40,7 +42,7 @@ LEVELS = ("normal", "throttle", "readonly", "halt")
     "astrbot_plugin_biofeedback",
     "shingflash",
     "生物反馈：外部信号折算痛值，按四段收缩权限",
-    "1.1.0",
+    "1.1.2",
 )
 class BioFeedback(Star):
     def __init__(self, context: Context, config: dict | None = None):
@@ -64,6 +66,8 @@ class BioFeedback(Star):
             "last_incident": 0.0,
             "last_decay": time.time(),
             "unlocked_at": 0.0,
+            "_log_offset": 0,
+            "veto": {},
         }
         try:
             if self.state_file.exists():
@@ -112,6 +116,54 @@ class BioFeedback(Star):
         hits = len(pat.findall(new))
         return min(100.0, hits * 20.0)
 
+    def _veto_value(self) -> float:
+        """否决分的当前值：随时间按 veto_decay_per_hour 衰减，避免一次否决永久抬疼。"""
+        v = self._state.get("veto") or {}
+        try:
+            val = float(v.get("v", 0.0) or 0.0)
+            ts = float(v.get("ts", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+        if val <= 0:
+            return 0.0
+        if ts > 0:
+            rate = float(self.conf.get("veto_decay_per_hour", 6.0) or 0.0)
+            val = max(0.0, val - rate * max(0.0, time.time() - ts) / 3600.0)
+            self._state["veto"] = {"v": val, "ts": time.time()}
+        return val
+
+    def _self_signals(self) -> dict:
+        """跑 self/collect_signals.py 采真信号，再读 bio_signals.json。
+
+        采集脚本输出是 0-1 比例，这里 ×100 换成 0-100；值为 null 的跳过，
+        不拿 0 顶替——0 的意思是"观测到没病"，null 是"没观测"。
+        """
+        script = str(self.conf.get("collector_script") or "").strip()
+        jf = str(self.conf.get("collector_file") or "").strip()
+        if script and os.path.isfile(script):
+            py = str(self.conf.get("collector_python") or sys.executable)
+            try:
+                subprocess.run([py, script], timeout=30, capture_output=True,
+                               cwd=os.path.dirname(script))
+            except Exception as e:
+                logger.warning("[biofeedback] 采集脚本执行失败: %s", e)
+        if not jf or not os.path.isfile(jf):
+            return {}
+        try:
+            d = json.loads(Path(jf).read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning("[biofeedback] 信号文件读取失败: %s", e)
+            return {}
+        out = {}
+        for k, v in (d or {}).items():
+            if k.startswith("_") or v is None:
+                continue
+            try:
+                out[k] = max(0.0, min(100.0, float(v) * 100.0))
+            except (TypeError, ValueError):
+                continue
+        return out
+
     def _extern(self) -> dict:
         path = str(self.conf.get("extern_signals_file") or "").strip()
         if not path or not os.path.isfile(path):
@@ -139,9 +191,12 @@ class BioFeedback(Star):
             sig["process_health"] = 0.0
 
         sig["log_errors"] = self._log_errors()
+        sig.update(self._self_signals())
         sig.update(self._extern())
-        for k in ("balance_burn", "rejection_count", "thermal_runtime"):
-            sig.setdefault(k, 0.0)
+        # 未观测的信号不写 0，_compute 里按已观测权重归一
+        veto = self._veto_value()
+        if veto > 0 or "rejection_count" in sig:
+            sig["rejection_count"] = max(sig.get("rejection_count", 0.0), veto)
         return sig
 
     # ---------- 痛值累积与衰减 ----------
@@ -150,28 +205,35 @@ class BioFeedback(Star):
         """受伤快、养伤慢。
 
         raw   = Σ(权重 × 信号)/100，落在 0-100
-        raw 高于 incident_floor 时，pain 至少抬到 raw，并保留 prev 的 unhealed_ratio
+        raw 高于 incident_floor 时，pain = max(前值, raw)，只升不降
         raw 低于 incident_floor 时，按 decay_per_hour 慢慢养伤
         """
         weights: dict = self.conf.get("weights") or {}
         sig = self._collect()
         self._state["signals"] = {k: round(v, 1) for k, v in sig.items()}
 
-        raw = 0.0
+        # 只用「已观测」的权重做分母：缺信号的项跳过，不让 null 在归一化里变成 0 分
+        num = den = 0.0
         for k, w in weights.items():
+            v = sig.get(k)
+            if v is None:
+                continue
             try:
-                raw += float(w) * float(sig.get(k, 0.0)) / 100.0
+                wf, vf = float(w), float(v)
             except (TypeError, ValueError):
                 continue
+            num += wf * vf
+            den += wf
+        raw = (num / den) if den else 0.0
         raw = max(0.0, min(100.0, raw))
 
         now = time.time()
         prev = float(self._state.get("pain", 0.0))
         floor = float(self.conf.get("incident_floor", 5.0))
-        keep = float(self.conf.get("unhealed_ratio", 0.7))
 
         if raw > floor:
-            pain = max(prev * keep, raw)          # 受伤快：立刻抬起来
+            # 事故只升不降：旧痛不会因为一次小事故被打折，衰减只由无事故时的 decay 负责
+            pain = max(prev, raw)                 # 受伤快：立刻抬起来
             self._state["last_incident"] = int(now)
             self._state["last_decay"] = now
         else:
@@ -219,10 +281,11 @@ class BioFeedback(Star):
         return True, lv
 
     def record_veto(self, n: int = 1) -> None:
-        """被否决/被纠正一次就调一次；其他插件也可以调。"""
+        """被否决/被纠正一次就调一次；其他插件也可以调。分数按 veto_decay_per_hour 自行衰减。"""
         step = float(self.conf.get("veto_step", 25.0))
-        base = float(self._state.get("signals", {}).get("rejection_count", 0.0))
-        self._state.setdefault("signals", {})["rejection_count"] = min(100.0, base + step * n)
+        now_v = min(100.0, self._veto_value() + step * n)
+        self._state["veto"] = {"v": now_v, "ts": time.time()}
+        self._state.setdefault("signals", {})["rejection_count"] = now_v
         self._compute()
 
     def _pw_ok(self, given: str = "") -> tuple[bool, str]:
@@ -238,6 +301,8 @@ class BioFeedback(Star):
     async def initialize(self):
         if not self.conf.get("enabled", True):
             return
+        if self._task and not self._task.done():  # 重载时别叠出第二个循环
+            return
         self._task = asyncio.create_task(self._loop())
         logger.info("[biofeedback] started, pain=%.1f", float(self._state.get("pain", 0)))
 
@@ -247,7 +312,11 @@ class BioFeedback(Star):
                 await asyncio.to_thread(self._compute)
             except Exception as e:  # 采样失败不能把自己弄崩
                 logger.warning("[biofeedback] sample failed: %s", e)
-            await asyncio.sleep(max(30, int(self.conf.get("probe_interval", 300))))
+            try:
+                wait = int(self.conf.get("probe_interval", 300))
+            except (TypeError, ValueError):
+                wait = 300
+            await asyncio.sleep(max(30, min(3600, wait)))
 
     async def terminate(self):
         if self._task:
@@ -270,6 +339,14 @@ class BioFeedback(Star):
             req.system_prompt = (req.system_prompt or "") + block
         except Exception as e:
             logger.warning("[biofeedback] inject failed: %s", e)
+
+    @staticmethod
+    def _is_admin(event) -> bool:
+        fn = getattr(event, "is_admin", None)
+        try:
+            return bool(fn()) if callable(fn) else False
+        except Exception:
+            return False
 
     # ---------- 命令 ----------
 
@@ -298,7 +375,7 @@ class BioFeedback(Star):
         # 以下全部只给管理员：解锁/重置等于放宽安全约束
         if sub == "unlock":
             ok, why = self._pw_ok(arg)
-            if not event.is_admin() and not ok:
+            if not self._is_admin(event) and not ok:
                 return event.plain_result(why or "口令无效")
             if self.level() != "halt":
                 return event.plain_result(f"当前段位={self.level()}，不需要解锁")
@@ -310,7 +387,7 @@ class BioFeedback(Star):
 
         if sub == "reset":
             ok, why = self._pw_ok(arg)
-            if not event.is_admin() and not ok:
+            if not self._is_admin(event) and not ok:
                 return event.plain_result(why or "口令无效")
             self._state.update({
                 "pain": 0.0, "signals": {}, "last_incident": 0.0,

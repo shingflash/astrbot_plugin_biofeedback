@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## 1.1.2 — 2026-11-13
+
+相对 1.1.0：通读后逐条实测的修复，外加把默认值里的本机路径全部摘掉。
+
+### 新增
+- `veto_decay_per_hour`：否决分按小时衰减，不再一次否决永久抬疼。
+- `collector_script` / `collector_file` / `collector_python`：可挂一个外部采集脚本，把 0-1 比例的实测信号换算成 0-100 分并入痛值。
+- `_veto_value()`：否决分独立存储（`state.veto`），随时间衰减后再参与计算。
+
+### 修复
+- `_log_offset` 未进 `state.json` 默认表，重启后偏移丢失，会把整个日志重扫一遍、重复计异常。
+- `record_veto()` 的分数写在内存 signals 里，下一次 `_collect()` 直接覆盖成 0，等于调用无效。
+- 否决分只累积不衰减，加过就永远压在 `incident_floor` 之上，痛值再也降不下来。
+- 事故时旧痛值被 `unhealed_ratio` 打折，一次小否决（raw 6.25）能把 78 的痛打到 54.6；改为只升不降，衰减只由无事故时的 `decay` 负责。
+- 归一化把未观测的信号当成 0 分参与加权；改为只用已观测权重做分母，缺的项跳过。
+- 插件重载时 `initialize()` 会再起一个采样循环，导致多个循环叠加；加单例保护。
+- `event.is_admin()` 在部分适配器上不存在，改为 `getattr` 探测，取不到按非管理员处理。
+- `probe_interval` 配成非数字时会让采样循环抛异常退出，加兜底并夹到 30-3600 秒。
+
+### 变更（破坏性）
+- `base_dir`、`password_file`、`collector_script`、`collector_file` 的默认值全部置空，改为在面板里填自己的路径，仓库里不再带任何本机路径。
+- 旧配置项 `accident_coef` 不再生效，由 `unhealed_ratio` 兜底。
+
 ## 1.1.0 — 2026-11-13
 
 痛值层补全 + 配置项去本机路径。历史版本不覆盖，0.1.0 仍可在 Tags/Releases 下载。

@@ -93,7 +93,7 @@
   "unhealed_ratio": {
     "type": "float",
     "default": 0.7,
-    "description": "新事故发生时旧痛值的保留比例（0-1），越小恢复越快"
+    "description": "（已不参与计算，仅保留兼容）事故时旧痛值曾按此比例打折，现改为只升不降"
   },
   "accident_coef": {
     "type": "float",
@@ -133,5 +133,25 @@
     "default": "",
     "description": "口令文件路径（/bio unlock、/bio reset 用）；留空则只认平台管理员身份",
     "hint": "格式：口令: xxxx 与 到期时间: YYYY-MM-DD HH:MM:SS"
+  },
+  "veto_decay_per_hour": {
+    "type": "float",
+    "default": 6.0,
+    "description": "否决分每小时自动衰减量；设 0 则一次否决永久计入"
+  },
+  "collector_script": {
+    "type": "string",
+    "default": "",
+    "description": "真信号采集脚本；留空则不跑脚本，只读信号文件"
+  },
+  "collector_python": {
+    "type": "string",
+    "default": "",
+    "description": "跑采集脚本用的解释器，留空用当前进程的 python"
+  },
+  "collector_file": {
+    "type": "string",
+    "default": "",
+    "description": "采集脚本写出的 bio_signals.json"
   }
 }

@@ -7,7 +7,7 @@ desc: |
   pain 只做权限收缩，不做"别再试"的判决：
   0-30 放行、30-60 降频、60-85 只读、85+ 停机待审（须管理员解锁）。
   衰减慢于累积——受伤快、养伤慢。
-version: 1.1.0
+version: 1.1.2
 author: shingflash
 repo: https://github.com/shingflash/astrbot_plugin_biofeedback
 astrbot_version: ">=4.27.1,<5"
