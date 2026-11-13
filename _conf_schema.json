@@ -12,7 +12,9 @@
   },
   "probe_ports": {
     "type": "list",
-    "default": ["127.0.0.1:6199"],
+    "default": [
+      "127.0.0.1:6199"
+    ],
     "description": "健康探测目标，格式 host:port；任一不可连即记为一次事故",
     "hint": "留空则跳过端口探测"
   },
@@ -23,32 +25,90 @@
   },
   "log_error_pattern": {
     "type": "string",
-    "default": "Traceback|ERROR|CRITICAL"
+    "default": "Traceback|ERROR|CRITICAL",
+    "description": "日志异常匹配正则"
   },
   "weights": {
     "type": "object",
-    "default": {
-      "process_health": 20,
-      "balance_burn": 25,
-      "rejection_count": 25,
-      "thermal_runtime": 10,
-      "log_errors": 20
-    },
-    "description": "各信号权重，总值应为 100"
+    "description": "各信号权重，总和建议 100",
+    "items": {
+      "process_health": {
+        "type": "int",
+        "default": 20,
+        "description": "进程/端口健康"
+      },
+      "log_errors": {
+        "type": "int",
+        "default": 20,
+        "description": "日志异常增量"
+      },
+      "balance_burn": {
+        "type": "int",
+        "default": 25,
+        "description": "余额燃烧速度"
+      },
+      "rejection_count": {
+        "type": "int",
+        "default": 25,
+        "description": "被否决次数"
+      },
+      "thermal_runtime": {
+        "type": "int",
+        "default": 10,
+        "description": "连续运行时长"
+      }
+    }
   },
   "thresholds": {
     "type": "object",
-    "default": {
-      "throttle": 30,
-      "readonly": 60,
-      "halt": 85
-    },
-    "description": "四段行为的分界点（升序）"
+    "description": "四段阈值",
+    "items": {
+      "throttle": {
+        "type": "int",
+        "default": 30,
+        "description": "降频段起点"
+      },
+      "readonly": {
+        "type": "int",
+        "default": 60,
+        "description": "只读段起点"
+      },
+      "halt": {
+        "type": "int",
+        "default": 85,
+        "description": "停机段起点"
+      }
+    }
   },
   "decay_per_hour": {
     "type": "int",
     "default": 2,
     "description": "无事故时每小时的 pain 衰减量（0-20），必须小于累积速度"
+  },
+  "incident_floor": {
+    "type": "float",
+    "default": 5.0,
+    "description": "事故判定下限：加权信号高于此值才视为事故并立即抬升 pain，低于则只衰减"
+  },
+  "unhealed_ratio": {
+    "type": "float",
+    "default": 0.7,
+    "description": "新事故发生时旧痛值的保留比例（0-1），越小恢复越快"
+  },
+  "accident_coef": {
+    "type": "float",
+    "default": 0.7,
+    "description": "兼容旧配置的事故系数，等价于 unhealed_ratio"
+  },
+  "throttle_cost_cap": {
+    "type": "float",
+    "default": 0.025,
+    "description": "降频段单次动作成本上限（占日预算比例）"
+  },
+  "veto_step": {
+    "type": "float",
+    "default": 25.0,
+    "description": "每次 record_veto 累加的否决分（0-100）"
   },
   "inject_priority": {
     "type": "bool",
@@ -61,5 +121,17 @@
     "default": "",
     "description": "可选：外部脚本写入的信号 JSON 绝对路径（余额速率等本插件测不到的量）",
     "hint": "格式 {\"balance_burn\": 0-100, \"thermal_runtime\": 0-100}"
+  },
+  "base_dir": {
+    "type": "string",
+    "default": "",
+    "description": "优先级文本所在目录（self/priority_compact.md 与 priority_*.md）；留空则只用内置压缩版",
+    "hint": "填 AstrBot 工作区根目录，例如 /path/to/workspace"
+  },
+  "password_file": {
+    "type": "string",
+    "default": "",
+    "description": "口令文件路径（/bio unlock、/bio reset 用）；留空则只认平台管理员身份",
+    "hint": "格式：口令: xxxx 与 到期时间: YYYY-MM-DD HH:MM:SS"
   }
 }
