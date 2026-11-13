@@ -1,5 +1,9 @@
 # CHANGELOG
 
+## Unreleased
+
+- README rewritten as bilingual (English + 中文) with badges and a sectioned layout
+
 ## 1.1.2 — 2026-11-13
 
 相对 1.1.0：通读后逐条实测的修复，外加把默认值里的本机路径全部摘掉。
